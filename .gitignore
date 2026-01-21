@@ -1,0 +1,18 @@
+# Binaries
+/bin
+/dist
+*.exe
+
+# Environment & Secrets
+.env
+.env.local
+*.key
+*.pem
+
+# IDEs
+.vscode/
+.idea/
+
+# Go
+vendor/
+coverage.out
