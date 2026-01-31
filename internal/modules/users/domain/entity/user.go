@@ -12,10 +12,14 @@ import (
 type UserRole string
 
 const (
-	RoleAdmin    UserRole = "admin"    // Admin do SaaS (Você)
-	RoleTenant   UserRole = "tenant"   // Dono da Empresa Cliente
-	RoleManager  UserRole = "manager"  // Gerente de Loja
-	RoleOperator UserRole = "operator" // Operador de Loja
+	// Nível Plataforma
+	RoleSuperAdmin UserRole = "super_admin"
+	RoleSupport    UserRole = "support"
+
+	// Nível Cliente
+	RoleTenantAdmin UserRole = "tenant_admin" // DONO DA LOJA
+	RoleManager     UserRole = "manager"      // Gerente da Loja
+	RoleOperator    UserRole = "operator"     // Funcionário da Loja
 )
 
 // UserStatus define o ciclo de vida do cadastro
