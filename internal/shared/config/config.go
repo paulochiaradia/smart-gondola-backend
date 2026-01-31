@@ -52,11 +52,11 @@ func Get() *Config {
 			LogFormat:  getEnv("LOG_FORMAT", "json"),
 			BaseURL:    getEnv("BASE_URL", "http://localhost:8080"),
 
-			DBHost: getEnv("DB_HOST", "localhost"),
+			DBHost: getEnv("DB_HOST", "127.0.0.1"),
 			DBPort: getEnv("DB_PORT", "5432"),
 			DBUser: getEnv("DB_USER", "postgres"),
 			DBPass: getEnv("DB_PASS", "postgres"),
-			DBName: getEnv("DB_NAME", "shelflink"),
+			DBName: getEnv("DB_NAME", "smartgondola"),
 
 			JWTSecret:         getEnv("JWT_SECRET", "default_secret"),
 			JWTExpiration:     time.Hour * 24,      // 1 dia (Access Token)

@@ -5,7 +5,7 @@ services:
     image: postgres:15-alpine
     container_name: smartgondola_db
     ports:
-      - "${DB_PORT}:5432" # Pega a porta do .env (8080 ou 5432)
+      - "${DB_PORT}:5432" # Pega a porta do .env 
     environment:
       - POSTGRES_USER=${DB_USER}     # Lê DB_USER do .env
       - POSTGRES_PASSWORD=${DB_PASS} # Lê DB_PASS do .env
