@@ -12,9 +12,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	// Módulo Users
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/usecase"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/infrastructure/repository"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/interface/http/handler"
+
+	// Módulo Organizations
+	orgUseCase "github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/usecase"
+	orgRepo "github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/infrastructure/repository"
+	orgHandler "github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/interface/http/handler"
+
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/config"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/database"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/logger"
@@ -38,10 +45,16 @@ func main() {
 	log.Info("Conexão com Postgres estabelecida")
 
 	// 4. Injeção de Dependência (Wiring)
-	// User Module
+
+	// --- User Module ---
 	userRepo := repository.NewUserRepository(db)
 	userUseCase := usecase.NewUserUseCase(userRepo)
 	userHandler := handler.NewUserHandler(userUseCase)
+
+	// --- Organization Module (NOVO) ---
+	organizationRepo := orgRepo.NewOrganizationRepository(db)
+	organizationUseCase := orgUseCase.NewOrganizationUseCase(organizationRepo)
+	organizationHandler := orgHandler.NewOrganizationHandler(organizationUseCase)
 
 	// 5. Configura Roteador (Chi)
 	r := chi.NewRouter()
@@ -61,7 +74,11 @@ func main() {
 
 	// API V1
 	r.Route("/api/v1", func(r chi.Router) {
+		// Rotas de Usuários e Auth
 		userHandler.RegisterRoutes(r)
+
+		// Rotas de Organizações
+		organizationHandler.RegisterRoutes(r)
 	})
 
 	// 6. Inicia o Servidor (Com Graceful Shutdown)
