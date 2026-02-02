@@ -9,86 +9,37 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-
-	// Módulo Users
-	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/usecase"
-	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/infrastructure/repository"
-	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/interface/http/handler"
-
-	// Módulo Organizations
-	orgUseCase "github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/usecase"
-	orgRepo "github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/infrastructure/repository"
-	orgHandler "github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/interface/http/handler"
-
+	"github.com/paulochiaradia/smart-gondola-backend/internal/di"
+	router "github.com/paulochiaradia/smart-gondola-backend/internal/interface/http"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/config"
-	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/database"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/logger"
 )
 
 func main() {
-	// 1. Carrega Configuração
+	// 1. Setup (Config & Logger)
 	cfg := config.Get()
-
-	// 2. Inicializa Logger
 	log := logger.New(cfg)
 	log.Info("Inicializando Smart Gondola Backend...", "env", cfg.AppEnv)
 
-	// 3. Conecta no Banco de Dados
-	db, err := database.NewPostgres(cfg)
+	// 2. Dependências (Database & Services)
+	container, cleanup, err := di.NewContainer(cfg)
 	if err != nil {
-		log.Error("Falha crítica ao conectar no banco", "error", err)
+		log.Error("Falha crítica ao inicializar dependências", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
-	log.Info("Conexão com Postgres estabelecida")
+	defer cleanup()
 
-	// 4. Injeção de Dependência (Wiring)
+	// 3. Interface (HTTP Router)
+	httpHandler := router.NewRouter(container)
 
-	// --- User Module ---
-	userRepo := repository.NewUserRepository(db)
-	userUseCase := usecase.NewUserUseCase(userRepo)
-	userHandler := handler.NewUserHandler(userUseCase)
-
-	// --- Organization Module (NOVO) ---
-	organizationRepo := orgRepo.NewOrganizationRepository(db)
-	organizationUseCase := orgUseCase.NewOrganizationUseCase(organizationRepo)
-	organizationHandler := orgHandler.NewOrganizationHandler(organizationUseCase)
-
-	// 5. Configura Roteador (Chi)
-	r := chi.NewRouter()
-
-	// Middlewares Globais
-	r.Use(middleware.RequestID) // Gera ID único para cada request (bom para rastreio)
-	r.Use(middleware.RealIP)    // Pega o IP real do usuário
-	r.Use(middleware.Logger)    // Loga cada requisição
-	r.Use(middleware.Recoverer) // Evita que o server caia se der Panic
-	r.Use(middleware.Timeout(60 * time.Second))
-
-	// Rota de Health Check
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
-
-	// API V1
-	r.Route("/api/v1", func(r chi.Router) {
-		// Rotas de Usuários e Auth
-		userHandler.RegisterRoutes(r)
-
-		// Rotas de Organizações
-		organizationHandler.RegisterRoutes(r)
-	})
-
-	// 6. Inicia o Servidor (Com Graceful Shutdown)
+	// 4. Server Start
 	serverPort := fmt.Sprintf(":%s", cfg.ServerPort)
 	server := &http.Server{
 		Addr:    serverPort,
-		Handler: r,
+		Handler: httpHandler,
 	}
 
-	// Canal para escutar sinais do SO (CTRL+C, Docker Stop)
+	// --- Graceful Shutdown ---
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
@@ -100,11 +51,9 @@ func main() {
 		}
 	}()
 
-	// Bloqueia execução esperando sinal de parada
 	<-stop
 	log.Info("Sinal de parada recebido. Desligando...")
 
-	// Contexto com timeout para terminar requests em andamento
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
