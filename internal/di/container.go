@@ -17,9 +17,10 @@ import (
 )
 
 type Container struct {
-	UserHandler *userHandler.UserHandler
-	OrgHandler  *orgHandler.OrganizationHandler
-	DB          *sql.DB //ex: health check simples)
+	UserHandler  *userHandler.UserHandler
+	OrgHandler   *orgHandler.OrganizationHandler
+	StoreHandler *orgHandler.StoreHandler
+	DB           *sql.DB //ex: health check simples)
 }
 
 // NewContainer inicializa tudo e retorna:
@@ -50,9 +51,15 @@ func NewContainer(cfg *config.Config) (*Container, func(), error) {
 	oUseCase := orgUseCase.NewOrganizationUseCase(oRepo)
 	oHandler := orgHandler.NewOrganizationHandler(oUseCase)
 
+	// --- Módulo Stores  ---
+	sRepo := orgRepo.NewStoreRepository(db)
+	sUseCase := orgUseCase.NewStoreUseCase(sRepo)
+	sHandler := orgHandler.NewStoreHandler(sUseCase)
+
 	return &Container{
-		UserHandler: uHandler,
-		OrgHandler:  oHandler,
-		DB:          db,
+		UserHandler:  uHandler,
+		OrgHandler:   oHandler,
+		StoreHandler: sHandler,
+		DB:           db,
 	}, cleanup, nil
 }

@@ -30,7 +30,7 @@ func NewRouter(container *di.Container) http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		container.UserHandler.RegisterRoutes(r)
 		container.OrgHandler.RegisterRoutes(r)
-		// container.StoreHandler.RegisterRoutes(r) // Em breve...
+		container.StoreHandler.RegisterRoutes(r)
 	})
 
 	return r
