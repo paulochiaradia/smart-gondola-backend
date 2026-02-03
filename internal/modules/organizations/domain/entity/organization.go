@@ -2,6 +2,7 @@ package entity
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
@@ -9,50 +10,43 @@ import (
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/validator"
 )
 
-// 1. Tipagem Forte para Planos (Enums)
+// Tipos Enum
 type OrganizationPlan string
 
 const (
-	PlanFree       OrganizationPlan = "free"       // Teste / Limitado
-	PlanPro        OrganizationPlan = "pro"        // Pequenas Lojas
-	PlanEnterprise OrganizationPlan = "enterprise" // Grandes Redes (Customizado)
+	PlanFree       OrganizationPlan = "free"
+	PlanPro        OrganizationPlan = "pro"
+	PlanEnterprise OrganizationPlan = "enterprise"
 )
 
-// 2. Tipagem para Setores de Atuação (Smart Gondola Context)
 type OrganizationSector string
 
 const (
 	SectorSupermarket OrganizationSector = "supermarket"
 	SectorPharmacy    OrganizationSector = "pharmacy"
-	SectorRetail      OrganizationSector = "retail"    // Varejo Geral
-	SectorWarehouse   OrganizationSector = "warehouse" // Centro de Distribuição
+	SectorRetail      OrganizationSector = "retail"
+	SectorWarehouse   OrganizationSector = "warehouse"
 	SectorOther       OrganizationSector = "other"
 )
 
-// OrganizationSettings define as regras e limites do plano (JSONB no banco)
 type OrganizationSettings struct {
 	MaxUsers   int `json:"max_users"`
-	MaxDevices int `json:"max_devices"` // Quantidade de etiquetas/gateways
-	// Futuro: MaxDashboards, AllowAPI, etc.
+	MaxDevices int `json:"max_devices"`
 }
 
-// Organization representa a empresa cliente (Tenant)
 type Organization struct {
-	ID       uuid.UUID          `json:"id"`
-	Name     string             `json:"name"`
-	Document string             `json:"document"` // CNPJ
-	Slug     string             `json:"slug"`
-	Plan     OrganizationPlan   `json:"plan"`
-	Sector   OrganizationSector `json:"sector"`
-	IsActive bool               `json:"is_active"`
-
-	Settings OrganizationSettings `json:"settings"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        uuid.UUID            `json:"id"`
+	Name      string               `json:"name"`
+	Document  string               `json:"document"` // Será salvo sempre LIMPO (apenas números)
+	Slug      string               `json:"slug"`
+	Plan      OrganizationPlan     `json:"plan"`
+	Sector    OrganizationSector   `json:"sector"`
+	IsActive  bool                 `json:"is_active"`
+	Settings  OrganizationSettings `json:"settings"`
+	CreatedAt time.Time            `json:"created_at"`
+	UpdatedAt time.Time            `json:"updated_at"`
 }
 
-// NewOrganization cria uma nova empresa com validações
 func NewOrganization(name, document, slug string, sector OrganizationSector, plan OrganizationPlan) (*Organization, error) {
 	if name == "" {
 		return nil, errors.New("nome da organização é obrigatório")
@@ -61,20 +55,22 @@ func NewOrganization(name, document, slug string, sector OrganizationSector, pla
 		return nil, errors.New("slug é obrigatório")
 	}
 
-	// Valida se o setor é permitido
 	if !isValidSector(sector) {
 		return nil, errors.New("setor de atuação inválido")
 	}
 
-	// Validação de CNPJ (Remove pontuação antes de validar)
-	cleanDoc := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(document, ".", ""), "-", ""), "/", "")
+	// 1. Limpeza do CNPJ (Remove tudo que não for dígito)
+	// Isso garante que "12.345..." vire "12345..."
+	reg, _ := regexp.Compile("[^0-9]+")
+	cleanDoc := reg.ReplaceAllString(document, "")
+
+	// 2. Validação
 	if !validator.IsCNPJ(cleanDoc) {
 		return nil, errors.New("CNPJ inválido")
 	}
 
-	// Define limites baseados no plano escolhido
+	// 3. Define Limites
 	defaultSettings := OrganizationSettings{}
-
 	switch plan {
 	case PlanFree:
 		defaultSettings = OrganizationSettings{MaxUsers: 2, MaxDevices: 10}
@@ -83,24 +79,23 @@ func NewOrganization(name, document, slug string, sector OrganizationSector, pla
 	case PlanEnterprise:
 		defaultSettings = OrganizationSettings{MaxUsers: 9999, MaxDevices: 99999}
 	default:
-		defaultSettings = OrganizationSettings{MaxUsers: 2, MaxDevices: 10} // Default seguro
+		defaultSettings = OrganizationSettings{MaxUsers: 2, MaxDevices: 10}
 	}
 
 	return &Organization{
 		ID:        uuid.New(),
 		Name:      name,
-		Document:  document,
+		Document:  cleanDoc, // <--- CORREÇÃO: Salva o limpo no banco
 		Slug:      strings.ToLower(slug),
 		Plan:      plan,
 		Sector:    sector,
-		Settings:  defaultSettings, // Salva os limites iniciais
+		Settings:  defaultSettings,
 		IsActive:  true,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}, nil
 }
 
-// Update permite alterar dados cadastrais da empresa
 func (o *Organization) Update(name, document string, sector OrganizationSector) error {
 	if name == "" {
 		return errors.New("nome não pode ser vazio")
@@ -109,8 +104,9 @@ func (o *Organization) Update(name, document string, sector OrganizationSector) 
 		return errors.New("setor inválido")
 	}
 
-	// Valida CNPJ se foi alterado
-	cleanDoc := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(document, ".", ""), "-", ""), "/", "")
+	reg, _ := regexp.Compile("[^0-9]+")
+	cleanDoc := reg.ReplaceAllString(document, "")
+
 	if !validator.IsCNPJ(cleanDoc) {
 		return errors.New("CNPJ inválido")
 	}
@@ -123,11 +119,8 @@ func (o *Organization) Update(name, document string, sector OrganizationSector) 
 	return nil
 }
 
-// ChangePlan altera o plano e atualiza os limites (Settings)
 func (o *Organization) ChangePlan(newPlan OrganizationPlan) {
 	o.Plan = newPlan
-
-	// Recalcula os limites baseados no novo plano
 	switch newPlan {
 	case PlanFree:
 		o.Settings = OrganizationSettings{MaxUsers: 2, MaxDevices: 10}
@@ -136,11 +129,9 @@ func (o *Organization) ChangePlan(newPlan OrganizationPlan) {
 	case PlanEnterprise:
 		o.Settings = OrganizationSettings{MaxUsers: 9999, MaxDevices: 99999}
 	}
-
 	o.UpdatedAt = time.Now()
 }
 
-// Auxiliar para validar setor
 func isValidSector(s OrganizationSector) bool {
 	switch s {
 	case SectorSupermarket, SectorPharmacy, SectorRetail, SectorWarehouse, SectorOther:
@@ -149,13 +140,11 @@ func isValidSector(s OrganizationSector) bool {
 	return false
 }
 
-// Deactivate desativa a organização inteira
 func (o *Organization) Deactivate() {
 	o.IsActive = false
 	o.UpdatedAt = time.Now()
 }
 
-// Activate reativa a organização
 func (o *Organization) Activate() {
 	o.IsActive = true
 	o.UpdatedAt = time.Now()

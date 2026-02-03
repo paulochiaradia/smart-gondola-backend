@@ -5,82 +5,78 @@ import (
 	"strconv"
 )
 
-// IsCNPJ verifica se um documento é válido (formato e dígitos verificadores)
+// IsCNPJ verifica se um string é um CNPJ válido
 func IsCNPJ(cnpj string) bool {
-	// 1. Remove caracteres não numéricos
-	reg, _ := regexp.Compile("[^0-9]")
+	// Remove caracteres não numéricos
+	reg := regexp.MustCompile("[^0-9]")
 	cnpj = reg.ReplaceAllString(cnpj, "")
 
-	// 2. Verifica tamanho (CNPJ tem 14 dígitos)
+	// CNPJ deve ter 14 dígitos
 	if len(cnpj) != 14 {
 		return false
 	}
 
-	// 3. Elimina CNPJs inválidos conhecidos (00000000000000, etc)
-	if isRepeated(cnpj) {
+	// Elimina CNPJs inválidos conhecidos (todos dígitos iguais)
+	if cnpj == "00000000000000" || cnpj == "11111111111111" ||
+		cnpj == "22222222222222" || cnpj == "33333333333333" ||
+		cnpj == "44444444444444" || cnpj == "55555555555555" ||
+		cnpj == "66666666666666" || cnpj == "77777777777777" ||
+		cnpj == "88888888888888" || cnpj == "99999999999999" {
 		return false
 	}
 
-	// 4. Valida os dígitos verificadores
-	// Primeiro dígito
-	tamanho := len(cnpj) - 2
-	numeros := cnpj[0:tamanho]
+	// Validação do primeiro dígito verificador
+	tamanho := 12
+	numeros := cnpj[:tamanho]
 	digitos := cnpj[tamanho:]
 	soma := 0
-	pos := tamanho - 7
-	for i := tamanho; i >= 1; i-- {
-		num, _ := strconv.Atoi(string(numeros[tamanho-i]))
+	pos := 5
+
+	for i := 0; i < tamanho; i++ {
+		num, _ := strconv.Atoi(string(numeros[i]))
 		soma += num * pos
 		pos--
 		if pos < 2 {
 			pos = 9
 		}
 	}
+
 	resultado := soma % 11
 	if resultado < 2 {
 		resultado = 0
 	} else {
 		resultado = 11 - resultado
 	}
-	digito1, _ := strconv.Atoi(string(digitos[0]))
-	if resultado != digito1 {
+
+	if strconv.Itoa(resultado) != string(digitos[0]) {
 		return false
 	}
 
-	// Segundo dígito
-	tamanho = tamanho + 1
-	numeros = cnpj[0:tamanho]
+	// Validação do segundo dígito verificador
+	tamanho = 13
+	numeros = cnpj[:tamanho]
 	soma = 0
-	pos = tamanho - 7
-	for i := tamanho; i >= 1; i-- {
-		num, _ := strconv.Atoi(string(numeros[tamanho-i]))
+	pos = 6
+
+	for i := 0; i < tamanho; i++ {
+		num, _ := strconv.Atoi(string(numeros[i]))
 		soma += num * pos
 		pos--
 		if pos < 2 {
 			pos = 9
 		}
 	}
+
 	resultado = soma % 11
 	if resultado < 2 {
 		resultado = 0
 	} else {
 		resultado = 11 - resultado
 	}
-	digito2, _ := strconv.Atoi(string(digitos[1]))
-	if resultado != digito2 {
+
+	if strconv.Itoa(resultado) != string(digitos[1]) {
 		return false
 	}
 
-	return true
-}
-
-// Auxiliar para detectar "11111111111111"
-func isRepeated(doc string) bool {
-	first := doc[0]
-	for i := 1; i < len(doc); i++ {
-		if doc[i] != first {
-			return false
-		}
-	}
 	return true
 }
