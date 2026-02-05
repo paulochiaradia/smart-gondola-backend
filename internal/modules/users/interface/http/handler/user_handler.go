@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/middleware"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/usecase"
 )
@@ -65,6 +66,25 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(res)
+}
+
+// Me retorna os dados do usuário logado (extraídos do Token)
+func (h *UserHandler) Me(w http.ResponseWriter, r *http.Request) {
+	// Recupera o ID que o Middleware injetou no contexto
+	userID := middleware.GetUserID(r.Context())
+	orgID := middleware.GetOrgID(r.Context())
+	role := middleware.GetRole(r.Context())
+
+	// Retorna um JSON simples para validar
+	response := map[string]interface{}{
+		"id":      userID,
+		"org_id":  orgID,
+		"role":    role,
+		"message": "Token válido! Você está autenticado.",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // RegisterRoutes agrupa as rotas do módulo
