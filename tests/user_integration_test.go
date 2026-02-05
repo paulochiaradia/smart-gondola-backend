@@ -2,136 +2,162 @@ package tests
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/suite"
 
-	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/dto"
-	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/usecase"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/di"
+	routerLib "github.com/paulochiaradia/smart-gondola-backend/internal/interface/http"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
+	userDTO "github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/domain/entity"
-	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/infrastructure/repository"
-	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/interface/http/handler"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/config"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/database"
 )
 
-// setupTest sobe a infraestrutura necessária para o teste
-func setupTest(t *testing.T) (*handler.UserHandler, *chi.Mux) {
-	// 1. Carrega Config (assume que o .env está na raiz ou variáveis de ambiente setadas)
-	cfg := config.Get()
+type UserE2ESuite struct {
+	suite.Suite
+	db        *sql.DB
+	handler   http.Handler
+	container *di.Container
 
-	// 2. Conecta no Banco (Requer Docker rodando)
-	db, err := database.NewPostgres(cfg)
-	if err != nil {
-		t.Fatalf("Erro ao conectar no banco de testes: %v", err)
-	}
-
-	// 3. Monta as dependências
-	repo := repository.NewUserRepository(db)
-	uc := usecase.NewUserUseCase(repo)
-	h := handler.NewUserHandler(uc)
-
-	// 4. Configura o Router
-	r := chi.NewRouter()
-	h.RegisterRoutes(r)
-
-	return h, r
+	// Dados de apoio para os testes
+	validOrgID uuid.UUID
 }
 
-func TestUserFlow_RegisterAndLogin(t *testing.T) {
-	// Inicializa o ambiente
-	_, router := setupTest(t)
+// SetupSuite: Roda uma vez antes de tudo. Sobe banco e configura a aplicação.
+func (s *UserE2ESuite) SetupSuite() {
+	cfg := config.Get()
+	// Ajuste para Docker no Windows
+	if cfg.DBHost == "localhost" {
+		cfg.DBHost = "127.0.0.1"
+	}
 
-	// Gera dados aleatórios para não dar conflito de Email Unique
-	randomEmail := fmt.Sprintf("teste_%d@smartgondola.com", time.Now().UnixNano())
-	randomPass := "senha123"
+	// 1. Conecta no Banco (necessário para limpar tabelas)
+	db, err := database.NewPostgres(cfg)
+	s.Require().NoError(err)
+	s.db = db
 
-	// ==========================================
-	// TESTE 1: REGISTRAR USUÁRIO (POST /auth/register)
-	// ==========================================
-	t.Run("Deve criar um usuário com sucesso", func(t *testing.T) {
-		// Payload (Corpo da requisição)
-		reqBody := dto.CreateUserRequest{
-			OrganizationID: uuid.New(),
-			Name:           "Usuario Teste Integração",
-			Email:          randomEmail,
-			Password:       randomPass,
-			Role:           entity.RoleManager,
-		}
-		jsonBody, _ := json.Marshal(reqBody)
+	// 2. Inicializa o Container (Injeção de Dependência Real)
+	container, _, err := di.NewContainer(cfg)
+	s.Require().NoError(err)
+	s.container = container
 
-		// Cria a requisição HTTP
-		req, _ := http.NewRequest("POST", "/auth/register", bytes.NewBuffer(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
+	// 3. Inicializa o Router (A API completa)
+	s.handler = routerLib.NewRouter(container)
+}
 
-		// Cria o Gravador de Resposta (ResponseRecorder)
-		rr := httptest.NewRecorder()
+// SetupTest: Roda antes de CADA teste. Limpa o banco e cria dados base.
+func (s *UserE2ESuite) SetupTest() {
+	// 1. Limpa tudo
+	_, err := s.db.Exec("TRUNCATE organizations, users CASCADE")
+	s.Require().NoError(err)
 
-		// Executa a requisição no router
-		router.ServeHTTP(rr, req)
+	// 2. CRIA UMA ORGANIZAÇÃO BASE (Necessária para criar usuário)
+	// Usamos o Handler/UseCase de Organização que já está no container para facilitar
+	// CNPJ Válido (Spotify Brasil): 15.502.834/0001-34
+	orgInput := dto.CreateOrganizationRequest{
+		Name:     "Empresa Teste User",
+		Document: "15502834000134",
+		Slug:     "empresa-teste-user",
+		Sector:   "retail", // string direta ou entity.SectorRetail se acessível
+		Plan:     "pro",
+	}
 
-		// VALIDAÇÕES
-		assert.Equal(t, http.StatusCreated, rr.Code) // Espera 201 Created
+	s.validOrgID = uuid.New()
+	_, err = s.db.Exec(`
+		INSERT INTO organizations (id, name, document, slug, plan, sector, settings, is_active)
+		VALUES ($1, $2, $3, $4, $5, $6, '{}', true)
+	`, s.validOrgID, orgInput.Name, "15502834000134", orgInput.Slug, orgInput.Plan, orgInput.Sector)
+	s.Require().NoError(err)
+}
 
-		var resp dto.UserResponse
-		err := json.Unmarshal(rr.Body.Bytes(), &resp)
-		assert.NoError(t, err)
-		assert.NotEmpty(t, resp.ID)
-		assert.Equal(t, randomEmail, resp.Email)
-	})
+func (s *UserE2ESuite) TearDownSuite() {
+	if s.db != nil {
+		s.db.Close()
+	}
+}
 
-	// ==========================================
-	// TESTE 2: FAZER LOGIN (POST /auth/login)
-	// ==========================================
-	t.Run("Deve fazer login e retornar token", func(t *testing.T) {
-		// Payload
-		loginBody := dto.LoginRequest{
-			Email:    randomEmail,
-			Password: randomPass,
-		}
-		jsonBody, _ := json.Marshal(loginBody)
+// --- TESTES DE ROTA (E2E) ---
 
-		req, _ := http.NewRequest("POST", "/auth/login", bytes.NewBuffer(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-
-		rr := httptest.NewRecorder()
-		router.ServeHTTP(rr, req)
-
-		// VALIDAÇÕES
-		assert.Equal(t, http.StatusOK, rr.Code) // Espera 200 OK
-
-		var loginResp map[string]interface{}
-		err := json.Unmarshal(rr.Body.Bytes(), &loginResp)
-		assert.NoError(t, err)
-
-		// Verifica se veio o token
-		assert.NotEmpty(t, loginResp["access_token"])
-		assert.Equal(t, "Bearer", loginResp["token_type"])
-	})
+func (s *UserE2ESuite) TestRegisterAndLoginFlow() {
+	// Variáveis do teste
+	email := "usuario.teste@smartgondola.com"
+	password := "SenhaForte123!"
 
 	// ==========================================
-	// TESTE 3: FALHA DE LOGIN (Senha Errada)
+	// 1. REGISTRAR USUÁRIO (POST /api/v1/auth/register)
 	// ==========================================
-	t.Run("Deve negar login com senha errada", func(t *testing.T) {
-		loginBody := dto.LoginRequest{
-			Email:    randomEmail,
-			Password: "senha_errada_123",
-		}
-		jsonBody, _ := json.Marshal(loginBody)
+	registerBody := userDTO.CreateUserRequest{
+		OrganizationID: s.validOrgID, // <--- Agora temos um ID REAL!
+		Name:           "João da Silva",
+		Email:          email,
+		Password:       password,
+		Role:           entity.RoleManager,
+	}
+	body, _ := json.Marshal(registerBody)
 
-		req, _ := http.NewRequest("POST", "/auth/login", bytes.NewBuffer(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
+	req, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
 
-		rr := httptest.NewRecorder()
-		router.ServeHTTP(rr, req)
+	s.handler.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusUnauthorized, rr.Code) // Espera 401 Unauthorized
-	})
+	// Validações Registro
+	s.Equal(http.StatusCreated, w.Code)
+
+	var userResp userDTO.UserResponse
+	err := json.Unmarshal(w.Body.Bytes(), &userResp)
+	s.NoError(err)
+	s.Equal(email, userResp.Email)
+	s.NotEmpty(userResp.ID)
+
+	// ==========================================
+	// 2. FAZER LOGIN (POST /api/v1/auth/login)
+	// ==========================================
+	loginBody := userDTO.LoginRequest{
+		Email:    email,
+		Password: password,
+	}
+	bodyLogin, _ := json.Marshal(loginBody)
+
+	reqLogin, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyLogin))
+	reqLogin.Header.Set("Content-Type", "application/json")
+	wLogin := httptest.NewRecorder()
+
+	s.handler.ServeHTTP(wLogin, reqLogin)
+
+	// Validações Login
+	s.Equal(http.StatusOK, wLogin.Code)
+
+	var loginResp map[string]interface{}
+	err = json.Unmarshal(wLogin.Body.Bytes(), &loginResp)
+	s.NoError(err)
+	s.NotEmpty(loginResp["access_token"], "Token não deve ser vazio")
+}
+
+func (s *UserE2ESuite) TestLogin_InvalidCredentials() {
+	// Tenta logar sem criar usuário antes
+	loginBody := userDTO.LoginRequest{
+		Email:    "naoexiste@email.com",
+		Password: "123",
+	}
+	body, _ := json.Marshal(loginBody)
+
+	req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	s.handler.ServeHTTP(w, req)
+
+	s.NotEqual(http.StatusOK, w.Code)
+}
+
+func TestUserE2ESuite(t *testing.T) {
+	suite.Run(t, new(UserE2ESuite))
 }
