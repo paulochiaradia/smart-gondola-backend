@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/domain/entity"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/domain/repository"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/pagination"
 )
 
 type StoreRepoPostgres struct {
@@ -98,37 +99,41 @@ func (r *StoreRepoPostgres) GetByID(ctx context.Context, id uuid.UUID) (*entity.
 	}
 	return &s, nil
 }
+func (r *StoreRepoPostgres) ListByOrganization(ctx context.Context, orgID uuid.UUID, pageParams pagination.Params) ([]*entity.Store, int64, error) {
+	var totalItems int64
+	countQuery := `SELECT COUNT(*) FROM stores WHERE organization_id = $1`
+	err := r.db.QueryRowContext(ctx, countQuery, orgID).Scan(&totalItems)
+	if err != nil {
+		return nil, 0, err
+	}
 
-func (r *StoreRepoPostgres) ListByOrganization(ctx context.Context, orgID uuid.UUID) ([]*entity.Store, error) {
 	query := `
-		SELECT 
-			id, organization_id, name, code, timezone, is_active,
-			address_street, address_number, address_complement, address_district, 
-			address_city, address_state, address_zip_code,
-			created_at, updated_at
-		FROM stores 
-		WHERE organization_id = $1 AND deleted_at IS NULL
-		ORDER BY name ASC
+		SELECT id, organization_id, name, code, timezone, street, number, complement, district, city, state, zip_code, created_at, updated_at
+		FROM stores
+		WHERE organization_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, orgID)
+	rows, err := r.db.QueryContext(ctx, query, orgID, pageParams.Limit, pageParams.Offset())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
 	var stores []*entity.Store
 	for rows.Next() {
 		var s entity.Store
-		if err := rows.Scan(
-			&s.ID, &s.OrganizationID, &s.Name, &s.Code, &s.Timezone, &s.IsActive,
-			&s.Address.Street, &s.Address.Number, &s.Address.Complement, &s.Address.District,
-			&s.Address.City, &s.Address.State, &s.Address.ZipCode,
+		err := rows.Scan(
+			&s.ID, &s.OrganizationID, &s.Name, &s.Code, &s.Timezone,
+			&s.Address.Street, &s.Address.Number, &s.Address.Complement, &s.Address.District, &s.Address.City, &s.Address.State, &s.Address.ZipCode,
 			&s.CreatedAt, &s.UpdatedAt,
-		); err != nil {
-			return nil, err
+		)
+		if err != nil {
+			return nil, 0, err
 		}
 		stores = append(stores, &s)
 	}
-	return stores, nil
+
+	return stores, totalItems, nil
 }
