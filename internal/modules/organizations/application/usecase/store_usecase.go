@@ -9,6 +9,7 @@ import (
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/domain/entity"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/domain/repository"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/pagination" // Importe o pacote de paginação
 )
 
 type StoreUseCase struct {
@@ -38,10 +39,7 @@ func (uc *StoreUseCase) Create(ctx context.Context, input dto.CreateStoreRequest
 	})
 
 	// 3. Persiste no Banco
-	// Dica: Se o código for duplicado na mesma org, o banco vai retornar erro.
-	// Poderíamos tratar o erro específico do driver aqui ou deixar o Handler pegar.
 	if err := uc.repo.Create(ctx, store); err != nil {
-		// Tratamento simples para erro de duplicidade
 		if strings.Contains(err.Error(), "uq_stores_org_code") {
 			return nil, errors.New("já existe uma loja com este código nesta organização")
 		}
@@ -51,17 +49,20 @@ func (uc *StoreUseCase) Create(ctx context.Context, input dto.CreateStoreRequest
 	return uc.toResponse(store), nil
 }
 
-func (uc *StoreUseCase) ListByOrganization(ctx context.Context, orgID uuid.UUID) ([]*dto.StoreResponse, error) {
-	stores, err := uc.repo.ListByOrganization(ctx, orgID)
+// ListByOrganization recebe os parâmetros, manda o Repositório buscar no banco, e converte para DTO
+func (uc *StoreUseCase) ListByOrganization(ctx context.Context, orgID uuid.UUID, params pagination.Params) ([]*dto.StoreResponse, int64, error) {
+	stores, totalItems, err := uc.repo.ListByOrganization(ctx, orgID, params)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
+	// 2. Converte as Entidades para DTOs de Resposta
 	var response []*dto.StoreResponse
 	for _, s := range stores {
 		response = append(response, uc.toResponse(s))
 	}
-	return response, nil
+
+	return response, totalItems, nil
 }
 
 func (uc *StoreUseCase) GetByID(ctx context.Context, id uuid.UUID) (*dto.StoreResponse, error) {

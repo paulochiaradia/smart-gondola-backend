@@ -6,9 +6,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/response" // <--- NOSSO PACOTE NOVO
+	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/response"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/usecase"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/pagination"
 )
 
 type StoreHandler struct {
@@ -37,7 +38,6 @@ func (h *StoreHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Usando o padronizador de sucesso!
 	response.Created(w, res)
 }
 
@@ -50,14 +50,26 @@ func (h *StoreHandler) ListByOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.useCase.ListByOrganization(r.Context(), orgID)
+	// 1. Extrai a página e o limite da URL (ex: ?page=1&limit=10)
+	pageParams := pagination.NewParams(r)
+
+	// 2. Chama o UseCase passando os parâmetros e recebendo as 3 variáveis!
+	res, totalItems, err := h.useCase.ListByOrganization(r.Context(), orgID, pageParams)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "Erro ao buscar lojas", err.Error())
 		return
 	}
 
-	// Retorna lista com sucesso (envelopada em "data")
-	response.OK(w, res)
+	// 3. Monta os Metadados (total de páginas, itens, etc)
+	meta := pagination.NewMeta(totalItems, pageParams.Page, pageParams.Limit)
+
+	// 4. Devolve JSON padronizado com Data e Meta
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response.SuccessPayload{
+		Data: res,
+		Meta: meta,
+	})
 }
 
 func (h *StoreHandler) RegisterRoutes(router chi.Router) {
