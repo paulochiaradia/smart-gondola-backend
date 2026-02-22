@@ -45,19 +45,28 @@ func NewRouter(container *di.Container) http.Handler {
 		// ===========================
 		// ROTAS PROTEGIDAS (Com Token)
 		// ===========================
+		// ===========================
+		// ROTAS PROTEGIDAS (Com Token)
+		// ===========================
+
 		r.Group(func(r chi.Router) {
-			// Aplica o Middleware de Auth apenas neste grupo
+			// 1. Aplica o AuthMiddleware para TODAS as rotas deste grupo
 			r.Use(customMiddleware.AuthMiddleware)
 
-			// Rotas de Usuário (ex: Perfil, Listar)
-			r.Get("/users/me", container.UserHandler.Me) // Sugestão futura
-
+			// Rotas de Organização
 			r.Get("/organizations/{id}", container.OrgHandler.GetByID)
 
 			// Rotas de Lojas
-			r.Post("/stores", container.StoreHandler.Create)
-			r.Get("/organizations/{orgId}/stores", container.StoreHandler.ListByOrg)
+			// Protegendo a criação de loja: Apenas 'admin' e 'tenant' (Dono) podem criar novas lojas.
+			// O 'manager' gerencia a loja, mas não cria novas. O 'operator' só opera.
+			r.With(customMiddleware.RequireRole("admin", "tenant")).
+				Post("/stores", container.StoreHandler.Create)
+
+			// Listar lojas: 'admin', 'tenant' e 'manager' podem ver.
+			r.With(customMiddleware.RequireRole("admin", "tenant", "manager")).
+				Get("/organizations/{orgId}/stores", container.StoreHandler.ListByOrg)
 		})
+
 	})
 
 	return r
