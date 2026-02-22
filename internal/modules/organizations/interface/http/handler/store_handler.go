@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/response" // <--- NOSSO PACOTE NOVO
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/usecase"
 )
@@ -22,24 +23,22 @@ func NewStoreHandler(uc *usecase.StoreUseCase) *StoreHandler {
 func (h *StoreHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateStoreRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "Formato JSON inválido")
 		return
 	}
 
 	res, err := h.useCase.Create(r.Context(), req)
 	if err != nil {
-		// Mapeando erros de negócio para Status Code
 		if err.Error() == "já existe uma loja com este código nesta organização" {
-			http.Error(w, err.Error(), http.StatusConflict) // 409 Conflict
+			response.Error(w, http.StatusConflict, err.Error())
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		response.Error(w, http.StatusInternalServerError, "Erro interno ao criar loja", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(res)
+	// Usando o padronizador de sucesso!
+	response.Created(w, res)
 }
 
 // ListByOrg GET /organizations/{orgId}/stores
@@ -47,26 +46,21 @@ func (h *StoreHandler) ListByOrg(w http.ResponseWriter, r *http.Request) {
 	orgIDStr := chi.URLParam(r, "orgId")
 	orgID, err := uuid.Parse(orgIDStr)
 	if err != nil {
-		http.Error(w, "ID da organização inválido", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "ID da organização inválido")
 		return
 	}
 
 	res, err := h.useCase.ListByOrganization(r.Context(), orgID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		response.Error(w, http.StatusInternalServerError, "Erro ao buscar lojas", err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	// Retorna lista com sucesso (envelopada em "data")
+	response.OK(w, res)
 }
 
-// RegisterRoutes registra as rotas (será chamado pelo Router principal)
 func (h *StoreHandler) RegisterRoutes(router chi.Router) {
-	// Rotas diretas de Loja
 	router.Post("/stores", h.Create)
-
-	// Rotas aninhadas (sub-recurso de organização)
-	// GET /organizations/{orgId}/stores
 	router.Get("/organizations/{orgId}/stores", h.ListByOrg)
 }

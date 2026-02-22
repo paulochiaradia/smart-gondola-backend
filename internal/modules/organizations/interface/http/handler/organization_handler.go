@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/response"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/usecase"
 )
@@ -25,7 +26,7 @@ func (h *OrganizationHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Decodifica JSON
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "JSON inválido")
 		return
 	}
 
@@ -34,22 +35,20 @@ func (h *OrganizationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Tratamento de erros específicos
 		if err.Error() == "este slug já está em uso por outra empresa" {
-			http.Error(w, err.Error(), http.StatusConflict) // 409 Conflict
+			response.Error(w, http.StatusConflict, err.Error())
 			return
 		}
 		if err.Error() == "CNPJ inválido" || err.Error() == "setor de atuação inválido" {
-			http.Error(w, err.Error(), http.StatusBadRequest) // 400 Bad Request
+			response.Error(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	// 3. Responde 201 Created
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(res)
+	response.Created(w, res)
 }
 
 // GetByID trata GET /organizations/{id}
@@ -58,20 +57,19 @@ func (h *OrganizationHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "ID inválido", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "ID inválido")
 		return
 	}
 
 	// 2. Chama UseCase
 	res, err := h.useCase.GetByID(r.Context(), id)
 	if err != nil {
-		http.Error(w, "Organização não encontrada", http.StatusNotFound)
+		response.Error(w, http.StatusNotFound, "Organização não encontrada")
 		return
 	}
 
 	// 3. Responde 200 OK
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	response.OK(w, res)
 }
 
 // Update trata PUT /organizations/{id}
@@ -79,24 +77,23 @@ func (h *OrganizationHandler) Update(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		http.Error(w, "ID inválido", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "ID inválido")
 		return
 	}
 
 	var req dto.UpdateOrganizationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		response.Error(w, http.StatusBadRequest, "JSON inválido")
 		return
 	}
 
 	res, err := h.useCase.Update(r.Context(), id, req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
+	response.OK(w, res)
 }
 
 // RegisterRoutes registra as rotas no router principal

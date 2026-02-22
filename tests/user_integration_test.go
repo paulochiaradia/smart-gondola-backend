@@ -13,6 +13,7 @@ import (
 
 	"github.com/paulochiaradia/smart-gondola-backend/internal/di"
 	routerLib "github.com/paulochiaradia/smart-gondola-backend/internal/interface/http"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/response"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
 	userDTO "github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/domain/entity"
@@ -86,15 +87,14 @@ func (s *UserE2ESuite) TearDownSuite() {
 // --- TESTES DE ROTA (E2E) ---
 
 func (s *UserE2ESuite) TestRegisterAndLoginFlow() {
-	// Variáveis do teste
 	email := "usuario.teste@smartgondola.com"
 	password := "SenhaForte123!"
 
 	// ==========================================
-	// 1. REGISTRAR USUÁRIO (POST /api/v1/auth/register)
+	// 1. REGISTRAR USUÁRIO
 	// ==========================================
 	registerBody := userDTO.CreateUserRequest{
-		OrganizationID: s.validOrgID, // <--- Agora temos um ID REAL!
+		OrganizationID: s.validOrgID,
 		Name:           "João da Silva",
 		Email:          email,
 		Password:       password,
@@ -111,14 +111,17 @@ func (s *UserE2ESuite) TestRegisterAndLoginFlow() {
 	// Validações Registro
 	s.Equal(http.StatusCreated, w.Code)
 
-	var userResp userDTO.UserResponse
-	err := json.Unmarshal(w.Body.Bytes(), &userResp)
+	// NOVO: Criamos uma struct anônima para ler o envelope "data"
+	var registerResp struct {
+		Data userDTO.UserResponse `json:"data"`
+	}
+	err := json.Unmarshal(w.Body.Bytes(), &registerResp)
 	s.NoError(err)
-	s.Equal(email, userResp.Email)
-	s.NotEmpty(userResp.ID)
+	s.Equal(email, registerResp.Data.Email)
+	s.NotEmpty(registerResp.Data.ID)
 
 	// ==========================================
-	// 2. FAZER LOGIN (POST /api/v1/auth/login)
+	// 2. FAZER LOGIN
 	// ==========================================
 	loginBody := userDTO.LoginRequest{
 		Email:    email,
@@ -135,14 +138,15 @@ func (s *UserE2ESuite) TestRegisterAndLoginFlow() {
 	// Validações Login
 	s.Equal(http.StatusOK, wLogin.Code)
 
-	var loginResp map[string]interface{}
+	// NOVO: Lendo o envelope "data" do login
+	var loginResp struct {
+		Data map[string]interface{} `json:"data"`
+	}
 	err = json.Unmarshal(wLogin.Body.Bytes(), &loginResp)
 	s.NoError(err)
-	s.NotEmpty(loginResp["access_token"], "Token não deve ser vazio")
+	s.NotEmpty(loginResp.Data["access_token"], "Token não deve ser vazio")
 }
-
 func (s *UserE2ESuite) TestLogin_InvalidCredentials() {
-	// Tenta logar sem criar usuário antes
 	loginBody := userDTO.LoginRequest{
 		Email:    "naoexiste@email.com",
 		Password: "123",
@@ -155,7 +159,16 @@ func (s *UserE2ESuite) TestLogin_InvalidCredentials() {
 
 	s.handler.ServeHTTP(w, req)
 
-	s.NotEqual(http.StatusOK, w.Code)
+	// Agora esperamos 401
+	s.Equal(http.StatusUnauthorized, w.Code)
+
+	// NOVO: Verifica se o erro veio envelopado certinho
+	var errorResp struct {
+		Error response.ErrorPayload `json:"error"` // Importe o pacote response lá em cima se precisar
+	}
+	json.Unmarshal(w.Body.Bytes(), &errorResp)
+	s.Equal(http.StatusUnauthorized, errorResp.Error.Code)
+	s.NotEmpty(errorResp.Error.Message)
 }
 
 func TestUserE2ESuite(t *testing.T) {
