@@ -10,6 +10,7 @@ import (
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/usecase"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/pagination"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/validator"
 )
 
 type StoreHandler struct {
@@ -25,6 +26,11 @@ func (h *StoreHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req dto.CreateStoreRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "Formato JSON inválido")
+		return
+	}
+
+	if validationErrors := validator.ValidateStruct(req); len(validationErrors) > 0 {
+		response.Error(w, http.StatusBadRequest, "Falha na validação dos dados", validationErrors...)
 		return
 	}
 

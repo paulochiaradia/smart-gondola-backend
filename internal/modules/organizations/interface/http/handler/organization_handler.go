@@ -9,6 +9,7 @@ import (
 	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/response"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/organizations/application/usecase"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/validator"
 )
 
 type OrganizationHandler struct {
@@ -27,6 +28,11 @@ func (h *OrganizationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// 1. Decodifica JSON
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	if validationErrors := validator.ValidateStruct(req); len(validationErrors) > 0 {
+		response.Error(w, http.StatusBadRequest, "Falha na validação dos dados", validationErrors...)
 		return
 	}
 
@@ -84,6 +90,11 @@ func (h *OrganizationHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req dto.UpdateOrganizationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	if validationErrors := validator.ValidateStruct(req); len(validationErrors) > 0 {
+		response.Error(w, http.StatusBadRequest, "Falha na validação dos dados", validationErrors...)
 		return
 	}
 

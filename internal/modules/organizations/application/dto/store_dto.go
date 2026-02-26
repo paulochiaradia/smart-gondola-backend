@@ -9,20 +9,20 @@ import (
 
 // AddressInput facilita a entrada de dados do endereço
 type AddressInput struct {
-	Street     string `json:"street"`
-	Number     string `json:"number"`
+	Street     string `json:"street" validate:"required"`
+	Number     string `json:"number" validate:"required"`
 	Complement string `json:"complement"`
-	District   string `json:"district"`
-	City       string `json:"city"`
-	State      string `json:"state"`
-	ZipCode    string `json:"zip_code"`
+	District   string `json:"district" validate:"required"`
+	City       string `json:"city" validate:"required"`
+	State      string `json:"state" validate:"required,len=2"`
+	ZipCode    string `json:"zip_code" validate:"required"`
 }
 
 // CreateStoreRequest entrada para criar loja
 type CreateStoreRequest struct {
-	OrganizationID uuid.UUID    `json:"organization_id"`
-	Name           string       `json:"name"`
-	Code           string       `json:"code"`
+	OrganizationID uuid.UUID    `json:"organization_id" validate:"required"`
+	Name           string       `json:"name" validate:"required"`
+	Code           string       `json:"code" validate:"required"`
 	Timezone       string       `json:"timezone"`
 	Address        AddressInput `json:"address"`
 }
