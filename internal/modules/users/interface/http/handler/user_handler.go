@@ -9,6 +9,7 @@ import (
 	"github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/response"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/usecase"
+	"github.com/paulochiaradia/smart-gondola-backend/internal/shared/validator"
 )
 
 type UserHandler struct {
@@ -27,6 +28,12 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// 1. Decodifica o JSON
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	validationErrors := validator.ValidateStruct(req)
+	if len(validationErrors) > 0 {
+		response.Error(w, http.StatusBadRequest, "Falha na validação dos dados", validationErrors...)
 		return
 	}
 
@@ -52,6 +59,11 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	if validationErrors := validator.ValidateStruct(req); len(validationErrors) > 0 {
+		response.Error(w, http.StatusBadRequest, "Falha na validação dos dados", validationErrors...)
 		return
 	}
 

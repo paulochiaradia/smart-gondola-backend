@@ -9,18 +9,18 @@ import (
 
 // CreateOrganizationRequest é o que esperamos receber no cadastro
 type CreateOrganizationRequest struct {
-	Name     string                    `json:"name"`
-	Document string                    `json:"document"` // CNPJ
-	Slug     string                    `json:"slug"`
-	Sector   entity.OrganizationSector `json:"sector"`
-	Plan     entity.OrganizationPlan   `json:"plan"`
+	Name     string                    `json:"name" validate:"required"`
+	Document string                    `json:"document" validate:"required"` // CNPJ
+	Slug     string                    `json:"slug" validate:"required"`
+	Sector   entity.OrganizationSector `json:"sector" validate:"required,oneof=supermarket pharmacy retail warehouse other"`
+	Plan     entity.OrganizationPlan   `json:"plan" validate:"required,oneof=free pro enterprise"`
 }
 
 // UpdateOrganizationRequest para atualizações cadastrais
 type UpdateOrganizationRequest struct {
-	Name     string                    `json:"name"`
-	Document string                    `json:"document"`
-	Sector   entity.OrganizationSector `json:"sector"`
+	Name     string                    `json:"name" validate:"required"`
+	Document string                    `json:"document" validate:"required"`
+	Sector   entity.OrganizationSector `json:"sector" validate:"required,oneof=supermarket pharmacy retail warehouse other"`
 }
 
 // OrganizationResponse é o que devolvemos para o frontend

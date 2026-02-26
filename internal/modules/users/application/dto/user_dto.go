@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	// IMPORTANTE: Ajuste o caminho abaixo para o nome do seu módulo no go.mod
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/domain/entity"
 )
 
