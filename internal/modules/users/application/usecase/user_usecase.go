@@ -74,7 +74,7 @@ func (uc *UserUseCase) Login(ctx context.Context, input dto.LoginRequest) (*dto.
 		return nil, errors.New("usuário inativo")
 	}
 
-	token, err := auth.GenerateToken(user.ID, string(user.Role))
+	token, err := auth.GenerateToken(user.ID, user.OrganizationID, string(user.Role))
 	if err != nil {
 		return nil, fmt.Errorf("erro token: %w", err)
 	}

@@ -15,18 +15,18 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(userID uuid.UUID, role string) (string, error) {
+// GenerateToken cria um JWT com os dados do usuário E da organização
+func GenerateToken(userID uuid.UUID, orgID uuid.UUID, role string) (string, error) {
 	cfg := config.Get()
-	expirationTime := time.Now().Add(cfg.JWTExpiration)
 
-	claims := &Claims{
-		UserID: userID,
-		Role:   role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(expirationTime),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Issuer:    "shelflink-api",
-		},
+	// Adiciona as Claims (As informações que vão dentro do envelope)
+	claims := jwt.MapClaims{
+		"user_id": userID.String(), // Ajustado para "user_id"
+		"org_id":  orgID.String(),  // <-- ADICIONAMOS A ORGANIZAÇÃO AQUI!
+		"role":    role,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(), // Expira em 24h
+		"iat":     time.Now().Unix(),
+		"iss":     "smart-gondola-api", // Nome correto da sua API
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
