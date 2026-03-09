@@ -45,7 +45,8 @@ func (s *MiddlewareSuite) TestProtectedRoutes_ShouldBlockAnonymous() {
 
 	// DEVE retornar 401 Unauthorized
 	assert.Equal(s.T(), http.StatusUnauthorized, w.Code)
-	assert.Contains(s.T(), w.Body.String(), "Authorization header is required")
+
+	assert.Contains(s.T(), w.Body.String(), "Header 'Authorization' é obrigatório")
 }
 
 func (s *MiddlewareSuite) TestPublicRoutes_ShouldAllowAnonymous() {
@@ -58,8 +59,6 @@ func (s *MiddlewareSuite) TestPublicRoutes_ShouldAllowAnonymous() {
 	// DEVE retornar 200 OK
 	assert.Equal(s.T(), http.StatusOK, w.Code)
 }
-
-// --- (Adicione os imports necessários lá em cima se faltar algum: "context", "github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/middleware") ---
 
 func (s *MiddlewareSuite) TestRBAC_ShouldBlockOperatorFromCreatingStore() {
 	// 1. Montamos uma requisição para criar loja
