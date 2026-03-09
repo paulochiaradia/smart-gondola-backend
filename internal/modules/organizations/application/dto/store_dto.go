@@ -9,13 +9,13 @@ import (
 
 // AddressInput facilita a entrada de dados do endereço
 type AddressInput struct {
-	Street     string `json:"street" validate:"required"`
-	Number     string `json:"number" validate:"required"`
+	Street     string `json:"street"`
+	Number     string `json:"number"`
 	Complement string `json:"complement"`
-	District   string `json:"district" validate:"required"`
-	City       string `json:"city" validate:"required"`
-	State      string `json:"state" validate:"required,len=2"`
-	ZipCode    string `json:"zip_code" validate:"required"`
+	District   string `json:"district"`
+	City       string `json:"city"`
+	State      string `json:"state" validate:"omitempty,len=2"`
+	ZipCode    string `json:"zip_code"`
 }
 
 // CreateStoreRequest entrada para criar loja

@@ -108,7 +108,9 @@ func (r *StoreRepoPostgres) ListByOrganization(ctx context.Context, orgID uuid.U
 	}
 
 	query := `
-		SELECT id, organization_id, name, code, timezone, street, number, complement, district, city, state, zip_code, created_at, updated_at
+		SELECT id, organization_id, name, code, timezone,
+			address_street, address_number, address_complement, address_district, address_city, address_state, address_zip_code,
+			created_at, updated_at
 		FROM stores
 		WHERE organization_id = $1
 		ORDER BY created_at DESC

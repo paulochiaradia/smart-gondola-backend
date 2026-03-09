@@ -54,7 +54,11 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		userIDStr, _ := claims["sub"].(string)
+		// --- ADICIONE ESTA LINHA TEMPORÁRIA AQUI ---
+		fmt.Printf("\n[DEBUG] Claims recebidos no Token: %+v\n\n", claims)
+		// ------------------------------------------
+
+		userIDStr, _ := claims["user_id"].(string)
 		orgIDStr, _ := claims["org_id"].(string)
 		role, _ := claims["role"].(string)
 
