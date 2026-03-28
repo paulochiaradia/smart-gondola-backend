@@ -4,10 +4,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/go-chi/httprate"
 
 	"github.com/paulochiaradia/smart-gondola-backend/internal/di"
 	customMiddleware "github.com/paulochiaradia/smart-gondola-backend/internal/interface/http/middleware"
@@ -17,7 +19,6 @@ func NewRouter(container *di.Container) http.Handler {
 	r := chi.NewRouter()
 
 	// 1. Configuração de CORS Dinâmica (Baseada no Ambiente)
-	// Em prod, defina ALLOWED_ORIGINS="https://meu-front.com.br"
 	allowedOriginsStr := os.Getenv("ALLOWED_ORIGINS")
 	var origins []string
 
@@ -41,10 +42,12 @@ func NewRouter(container *di.Container) http.Handler {
 	// 2. Middlewares Globais (Logs e Prevenção de Crash)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(customMiddleware.SecurityHeaders)
 
 	// 3. Segurança Extra: Limite de Payload (2MB)
 	// Impede que enviem um JSON de 1GB e travem a memória do servidor
 	r.Use(customMiddleware.LimitPayloadSize(2 * 1024 * 1024))
+	r.Use(httprate.LimitByIP(100, 1*time.Minute))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// ===========================

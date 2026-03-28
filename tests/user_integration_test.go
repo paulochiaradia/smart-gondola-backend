@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -169,6 +170,367 @@ func (s *UserE2ESuite) TestLogin_InvalidCredentials() {
 	json.Unmarshal(w.Body.Bytes(), &errorResp)
 	s.Equal(http.StatusUnauthorized, errorResp.Error.Code)
 	s.NotEmpty(errorResp.Error.Message)
+}
+
+func (s *UserE2ESuite) TestLogin_LockoutMechanism() {
+	// 1. Prepara os dados do alvo (você pode usar um usuário criado no SetupTest,
+	// mas vamos assumir que existe um email válido e uma senha correta)
+	email := "alvo_bruteforce@smartgondola.com"
+	correctPassword := "SenhaSegura123!"
+
+	// (Simulando o registro rápido desse usuário alvo para o teste)
+	registerReq := userDTO.CreateUserRequest{
+		OrganizationID: s.validOrgID, // Assumindo que você tem isso no seu Suite
+		Name:           "Alvo Lockout",
+		Email:          email,
+		Password:       correctPassword,
+		Role:           entity.RoleManager,
+	}
+	bodyReg, _ := json.Marshal(registerReq)
+	reqReg, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(bodyReg))
+	reqReg.Header.Set("Content-Type", "application/json")
+	wReg := httptest.NewRecorder()
+	s.handler.ServeHTTP(wReg, reqReg)
+	s.Require().Equal(http.StatusCreated, wReg.Code)
+
+	// 2. O Atacante tenta errar a senha 5 vezes seguidas
+	for i := 1; i <= 5; i++ {
+		loginReq := userDTO.LoginRequest{
+			Email:    email,
+			Password: "SenhaIncorreta", // Errou!
+		}
+		body, _ := json.Marshal(loginReq)
+		req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		s.handler.ServeHTTP(w, req)
+
+		if i < 5 {
+			s.Equal(http.StatusUnauthorized, w.Code)
+		} else {
+			s.Equal(http.StatusTooManyRequests, w.Code)
+		}
+	}
+
+	// 3. A 6ª tentativa DEVE informar que a conta está bloqueada,
+	// MESMO QUE ele finalmente acerte a senha!
+	loginReq := userDTO.LoginRequest{
+		Email:    email,
+		Password: correctPassword, // Acertou, mas é tarde demais!
+	}
+	body, _ := json.Marshal(loginReq)
+	req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	s.handler.ServeHTTP(w, req)
+
+	// Conta bloqueada deve responder 429 mesmo com senha correta.
+	s.Equal(http.StatusTooManyRequests, w.Code)
+
+	var errorResp struct {
+		Error response.ErrorPayload `json:"error"`
+	}
+	err := json.Unmarshal(w.Body.Bytes(), &errorResp)
+	s.NoError(err)
+	s.Equal(http.StatusTooManyRequests, errorResp.Error.Code)
+	s.Contains(errorResp.Error.Message, "conta temporariamente bloqueada")
+}
+
+func (s *UserE2ESuite) TestLogin_LockoutExpired_AllowsLogin() {
+	email := "expira_lockout@smartgondola.com"
+	correctPassword := "SenhaSegura123!"
+
+	registerReq := userDTO.CreateUserRequest{
+		OrganizationID: s.validOrgID,
+		Name:           "Usuário Expira Lockout",
+		Email:          email,
+		Password:       correctPassword,
+		Role:           entity.RoleManager,
+	}
+	bodyReg, _ := json.Marshal(registerReq)
+	reqReg, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(bodyReg))
+	reqReg.Header.Set("Content-Type", "application/json")
+	wReg := httptest.NewRecorder()
+	s.handler.ServeHTTP(wReg, reqReg)
+	s.Require().Equal(http.StatusCreated, wReg.Code)
+
+	for i := 1; i <= 5; i++ {
+		loginReq := userDTO.LoginRequest{
+			Email:    email,
+			Password: "SenhaIncorreta",
+		}
+		body, _ := json.Marshal(loginReq)
+		req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		w := httptest.NewRecorder()
+		s.handler.ServeHTTP(w, req)
+
+		if i < 5 {
+			s.Equal(http.StatusUnauthorized, w.Code)
+		} else {
+			s.Equal(http.StatusTooManyRequests, w.Code)
+		}
+	}
+
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET locked_until = NOW() - INTERVAL '1 minute'
+		WHERE email = $1
+	`, email)
+	s.Require().NoError(err)
+
+	loginReq := userDTO.LoginRequest{
+		Email:    email,
+		Password: correctPassword,
+	}
+	bodyLogin, _ := json.Marshal(loginReq)
+	reqLogin, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyLogin))
+	reqLogin.Header.Set("Content-Type", "application/json")
+	wLogin := httptest.NewRecorder()
+
+	s.handler.ServeHTTP(wLogin, reqLogin)
+	s.Equal(http.StatusOK, wLogin.Code)
+
+	var loginResp struct {
+		Data map[string]interface{} `json:"data"`
+	}
+	err = json.Unmarshal(wLogin.Body.Bytes(), &loginResp)
+	s.NoError(err)
+	s.NotEmpty(loginResp.Data["access_token"], "token deve existir após expiração do lockout")
+}
+
+func (s *UserE2ESuite) TestLogin_SuccessResetsSecurityFields() {
+	email := "reset_security_fields@smartgondola.com"
+	correctPassword := "SenhaSegura123!"
+
+	registerReq := userDTO.CreateUserRequest{
+		OrganizationID: s.validOrgID,
+		Name:           "Usuário Reset Segurança",
+		Email:          email,
+		Password:       correctPassword,
+		Role:           entity.RoleManager,
+	}
+	bodyReg, _ := json.Marshal(registerReq)
+	reqReg, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(bodyReg))
+	reqReg.Header.Set("Content-Type", "application/json")
+	wReg := httptest.NewRecorder()
+	s.handler.ServeHTTP(wReg, reqReg)
+	s.Require().Equal(http.StatusCreated, wReg.Code)
+
+	for i := 0; i < 2; i++ {
+		badLogin := userDTO.LoginRequest{Email: email, Password: "SenhaIncorreta"}
+		bodyBad, _ := json.Marshal(badLogin)
+		reqBad, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyBad))
+		reqBad.Header.Set("Content-Type", "application/json")
+		wBad := httptest.NewRecorder()
+		s.handler.ServeHTTP(wBad, reqBad)
+		s.Equal(http.StatusUnauthorized, wBad.Code)
+	}
+
+	goodLogin := userDTO.LoginRequest{Email: email, Password: correctPassword}
+	bodyGood, _ := json.Marshal(goodLogin)
+	reqGood, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyGood))
+	reqGood.Header.Set("Content-Type", "application/json")
+	wGood := httptest.NewRecorder()
+	s.handler.ServeHTTP(wGood, reqGood)
+	s.Require().Equal(http.StatusOK, wGood.Code)
+
+	var failedAttempts int
+	var lockedUntil sql.NullTime
+	var lastLoginAt sql.NullTime
+	err := s.db.QueryRow(`
+		SELECT failed_login_attempts, locked_until, last_login_at
+		FROM users
+		WHERE email = $1
+	`, email).Scan(&failedAttempts, &lockedUntil, &lastLoginAt)
+	s.Require().NoError(err)
+
+	s.Equal(0, failedAttempts)
+	s.False(lockedUntil.Valid)
+	s.True(lastLoginAt.Valid)
+}
+
+func (s *UserE2ESuite) TestLogin_InactiveUser_ShouldReturnUnauthorized() {
+	email := "inactive_user@smartgondola.com"
+	password := "SenhaSegura123!"
+
+	registerReq := userDTO.CreateUserRequest{
+		OrganizationID: s.validOrgID,
+		Name:           "Usuário Inativo",
+		Email:          email,
+		Password:       password,
+		Role:           entity.RoleManager,
+	}
+	bodyReg, _ := json.Marshal(registerReq)
+	reqReg, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(bodyReg))
+	reqReg.Header.Set("Content-Type", "application/json")
+	wReg := httptest.NewRecorder()
+	s.handler.ServeHTTP(wReg, reqReg)
+	s.Require().Equal(http.StatusCreated, wReg.Code)
+
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET status = 'suspended'
+		WHERE email = $1
+	`, email)
+	s.Require().NoError(err)
+
+	loginReq := userDTO.LoginRequest{Email: email, Password: password}
+	bodyLogin, _ := json.Marshal(loginReq)
+	reqLogin, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyLogin))
+	reqLogin.Header.Set("Content-Type", "application/json")
+	wLogin := httptest.NewRecorder()
+
+	s.handler.ServeHTTP(wLogin, reqLogin)
+	s.Equal(http.StatusUnauthorized, wLogin.Code)
+
+	var errorResp struct {
+		Error response.ErrorPayload `json:"error"`
+	}
+	err = json.Unmarshal(wLogin.Body.Bytes(), &errorResp)
+	s.NoError(err)
+	s.Equal(http.StatusUnauthorized, errorResp.Error.Code)
+	s.NotEmpty(errorResp.Error.Message)
+}
+
+func (s *UserE2ESuite) TestLogin_LockoutConcurrentAttempts() {
+	email := "concorrente_lockout@smartgondola.com"
+	password := "SenhaSegura123!"
+
+	registerReq := userDTO.CreateUserRequest{
+		OrganizationID: s.validOrgID,
+		Name:           "Usuário Concorrência Lockout",
+		Email:          email,
+		Password:       password,
+		Role:           entity.RoleManager,
+	}
+	bodyReg, _ := json.Marshal(registerReq)
+	reqReg, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(bodyReg))
+	reqReg.Header.Set("Content-Type", "application/json")
+	wReg := httptest.NewRecorder()
+	s.handler.ServeHTTP(wReg, reqReg)
+	s.Require().Equal(http.StatusCreated, wReg.Code)
+
+	const attempts = 10
+	var wg sync.WaitGroup
+	results := make(chan int, attempts)
+
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			loginReq := userDTO.LoginRequest{Email: email, Password: "SenhaIncorreta"}
+			body, _ := json.Marshal(loginReq)
+			req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			s.handler.ServeHTTP(w, req)
+			results <- w.Code
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+
+	var has429 bool
+	for code := range results {
+		s.NotEqual(http.StatusOK, code)
+		if code == http.StatusTooManyRequests {
+			has429 = true
+		}
+	}
+
+	if !has429 {
+		for i := 0; i < 10; i++ {
+			loginReq := userDTO.LoginRequest{Email: email, Password: "SenhaIncorreta"}
+			body, _ := json.Marshal(loginReq)
+			req, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			s.handler.ServeHTTP(w, req)
+			if w.Code == http.StatusTooManyRequests {
+				has429 = true
+				break
+			}
+		}
+	}
+	s.True(has429, "após burst concorrente, o lockout deve ocorrer de forma eventual")
+
+	var failedAttempts int
+	var lockedUntil sql.NullTime
+	err := s.db.QueryRow(`
+		SELECT failed_login_attempts, locked_until
+		FROM users
+		WHERE email = $1
+	`, email).Scan(&failedAttempts, &lockedUntil)
+	s.Require().NoError(err)
+	s.GreaterOrEqual(failedAttempts, 1)
+	s.True(lockedUntil.Valid)
+}
+
+func (s *UserE2ESuite) TestLogin_AfterLockoutExpiresAndSuccess_FirstFailureStartsFromOne() {
+	email := "apos_expirar_reinicia_contador@smartgondola.com"
+	password := "SenhaSegura123!"
+
+	registerReq := userDTO.CreateUserRequest{
+		OrganizationID: s.validOrgID,
+		Name:           "Usuário Reinício Contador",
+		Email:          email,
+		Password:       password,
+		Role:           entity.RoleManager,
+	}
+	bodyReg, _ := json.Marshal(registerReq)
+	reqReg, _ := http.NewRequest("POST", "/api/v1/auth/register", bytes.NewBuffer(bodyReg))
+	reqReg.Header.Set("Content-Type", "application/json")
+	wReg := httptest.NewRecorder()
+	s.handler.ServeHTTP(wReg, reqReg)
+	s.Require().Equal(http.StatusCreated, wReg.Code)
+
+	for i := 1; i <= 5; i++ {
+		badLogin := userDTO.LoginRequest{Email: email, Password: "SenhaIncorreta"}
+		bodyBad, _ := json.Marshal(badLogin)
+		reqBad, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyBad))
+		reqBad.Header.Set("Content-Type", "application/json")
+		wBad := httptest.NewRecorder()
+		s.handler.ServeHTTP(wBad, reqBad)
+	}
+
+	_, err := s.db.Exec(`
+		UPDATE users
+		SET locked_until = NOW() - INTERVAL '1 minute'
+		WHERE email = $1
+	`, email)
+	s.Require().NoError(err)
+
+	goodLogin := userDTO.LoginRequest{Email: email, Password: password}
+	bodyGood, _ := json.Marshal(goodLogin)
+	reqGood, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyGood))
+	reqGood.Header.Set("Content-Type", "application/json")
+	wGood := httptest.NewRecorder()
+	s.handler.ServeHTTP(wGood, reqGood)
+	s.Require().Equal(http.StatusOK, wGood.Code)
+
+	postSuccessFail := userDTO.LoginRequest{Email: email, Password: "SenhaErradaDeNovo"}
+	bodyFail, _ := json.Marshal(postSuccessFail)
+	reqFail, _ := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(bodyFail))
+	reqFail.Header.Set("Content-Type", "application/json")
+	wFail := httptest.NewRecorder()
+	s.handler.ServeHTTP(wFail, reqFail)
+	s.Equal(http.StatusUnauthorized, wFail.Code)
+
+	var failedAttempts int
+	var lockedUntil sql.NullTime
+	err = s.db.QueryRow(`
+		SELECT failed_login_attempts, locked_until
+		FROM users
+		WHERE email = $1
+	`, email).Scan(&failedAttempts, &lockedUntil)
+	s.Require().NoError(err)
+	s.Equal(1, failedAttempts)
+	s.False(lockedUntil.Valid)
 }
 
 func TestUserE2ESuite(t *testing.T) {

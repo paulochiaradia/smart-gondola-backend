@@ -113,6 +113,41 @@ func (s *MiddlewareSuite) TestRBAC_ShouldAllowTenantToCreateStore() {
 	s.Equal(http.StatusOK, w.Code)
 }
 
+func (s *MiddlewareSuite) TestSecurityHeaders_ShouldBePresent() {
+	req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	w := httptest.NewRecorder()
+
+	s.handler.ServeHTTP(w, req)
+
+	// Valida se o middleware injetou os headers de segurança
+	s.Equal("nosniff", w.Header().Get("X-Content-Type-Options"))
+	s.Equal("DENY", w.Header().Get("X-Frame-Options"))
+	s.Equal("1; mode=block", w.Header().Get("X-XSS-Protection"))
+	s.Contains(w.Header().Get("Strict-Transport-Security"), "max-age=31536000")
+}
+
+func (s *MiddlewareSuite) TestRateLimiter_ShouldBlockAfterLimit() {
+	// Vamos forçar um IP específico para o teste não misturar com outros
+	testIP := "192.168.100.5:1234"
+
+	// 1. Faz 100 requisições (O limite que configuramos em router.go)
+	for i := 0; i < 100; i++ {
+		req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+		req.RemoteAddr = testIP
+		w := httptest.NewRecorder()
+		s.handler.ServeHTTP(w, req)
+
+		s.Equal(http.StatusOK, w.Code, "Requisição %d dentro do limite deveria passar", i+1)
+	}
+
+	// 2. A 101ª requisição DEVE ser bloqueada (HTTP 429 Too Many Requests)
+	req, _ := http.NewRequest("GET", "/api/v1/health", nil)
+	req.RemoteAddr = testIP
+	w := httptest.NewRecorder()
+	s.handler.ServeHTTP(w, req)
+
+	s.Equal(http.StatusTooManyRequests, w.Code, "A 101ª requisição deve ser bloqueada pelo Rate Limiter")
+}
 func TestMiddlewareSuite(t *testing.T) {
 	suite.Run(t, new(MiddlewareSuite))
 }

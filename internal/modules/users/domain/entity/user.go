@@ -129,5 +129,24 @@ func (u *User) CheckPassword(password string) bool {
 
 // IsLocked verifica bloqueio temporário
 func (u *User) IsLocked() bool {
-	return u.LockedUntil != nil && u.LockedUntil.After(time.Now())
+	return u.LockedUntil != nil && u.LockedUntil.After(time.Now().UTC())
+}
+
+// RegisterFailedLogin incrementa as tentativas e bloqueia a conta se atingir o limite
+func (u *User) RegisterFailedLogin(maxAttempts int, lockoutDuration time.Duration) {
+	u.FailedLoginAttempts++
+	if u.FailedLoginAttempts >= maxAttempts {
+		lockTime := time.Now().UTC().Add(lockoutDuration)
+		u.LockedUntil = &lockTime
+	}
+	u.UpdatedAt = time.Now().UTC()
+}
+
+// ResetLoginAttempts zera o contador após um login com sucesso
+func (u *User) ResetLoginAttempts() {
+	if u.FailedLoginAttempts > 0 || u.LockedUntil != nil {
+		u.FailedLoginAttempts = 0
+		u.LockedUntil = nil
+		u.UpdatedAt = time.Now().UTC()
+	}
 }

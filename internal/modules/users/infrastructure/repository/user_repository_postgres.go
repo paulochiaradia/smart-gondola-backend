@@ -63,6 +63,8 @@ func (r *UserRepoPostgres) GetByEmail(ctx context.Context, email string) (*entit
 
 	var u entity.User
 	var twoFactorJSON []byte
+	var lockedUntil sql.NullTime
+	var lastLoginAt sql.NullTime
 	// Nota: Scan direto de campos que podem ser NULL (como StoreID, LockedUntil) exige cuidado.
 	// O pgx geralmente lida bem com *uuid.UUID, mas sql.DB padrão exige scan em sql.Null...
 	// Para simplificar aqui, vamos focar no caminho feliz. Se der erro de NULL, ajustamos.
@@ -70,7 +72,7 @@ func (r *UserRepoPostgres) GetByEmail(ctx context.Context, email string) (*entit
 	err := r.db.QueryRowContext(ctx, query, email).Scan(
 		&u.ID, &u.OrganizationID, &u.StoreID, &u.Name, &u.Email, &u.Phone, &u.AvatarURL,
 		&u.PasswordHash, &u.Role, &u.Status, &u.Timezone, &u.Language, &twoFactorJSON,
-		&u.FailedLoginAttempts, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt,
+		&u.FailedLoginAttempts, &lockedUntil, &lastLoginAt, &u.CreatedAt,
 	)
 
 	if err != nil {
@@ -84,6 +86,16 @@ func (r *UserRepoPostgres) GetByEmail(ctx context.Context, email string) (*entit
 	if len(twoFactorJSON) > 0 {
 		u.TwoFactor = &entity.TwoFactorAuth{}
 		_ = json.Unmarshal(twoFactorJSON, u.TwoFactor)
+	}
+
+	if lockedUntil.Valid {
+		lockValue := lockedUntil.Time
+		u.LockedUntil = &lockValue
+	}
+
+	if lastLoginAt.Valid {
+		lastLoginValue := lastLoginAt.Time
+		u.LastLoginAt = &lastLoginValue
 	}
 
 	return &u, nil
@@ -102,12 +114,14 @@ func (r *UserRepoPostgres) GetByID(ctx context.Context, id uuid.UUID) (*entity.U
 
 	var u entity.User
 	var twoFactorJSON []byte
+	var lockedUntil sql.NullTime
+	var lastLoginAt sql.NullTime
 
 	// Executa a query passando o ID
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&u.ID, &u.OrganizationID, &u.StoreID, &u.Name, &u.Email, &u.Phone, &u.AvatarURL,
 		&u.PasswordHash, &u.Role, &u.Status, &u.Timezone, &u.Language, &twoFactorJSON,
-		&u.FailedLoginAttempts, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt,
+		&u.FailedLoginAttempts, &lockedUntil, &lastLoginAt, &u.CreatedAt,
 	)
 
 	if err != nil {
@@ -127,6 +141,16 @@ func (r *UserRepoPostgres) GetByID(ctx context.Context, id uuid.UUID) (*entity.U
 		}
 	}
 
+	if lockedUntil.Valid {
+		lockValue := lockedUntil.Time
+		u.LockedUntil = &lockValue
+	}
+
+	if lastLoginAt.Valid {
+		lastLoginValue := lastLoginAt.Time
+		u.LastLoginAt = &lastLoginValue
+	}
+
 	return &u, nil
 }
 
@@ -143,6 +167,20 @@ func (r *UserRepoPostgres) Update(ctx context.Context, u *entity.User) error {
 
 // UpdateSecurity atualiza dados sensíveis (Senha, Bloqueio)
 func (r *UserRepoPostgres) UpdateSecurity(ctx context.Context, u *entity.User) error {
+	var lockedUntil interface{}
+	if u.LockedUntil != nil {
+		lockedUntil = *u.LockedUntil
+	} else {
+		lockedUntil = nil
+	}
+
+	var lastLoginAt interface{}
+	if u.LastLoginAt != nil {
+		lastLoginAt = *u.LastLoginAt
+	} else {
+		lastLoginAt = nil
+	}
+
 	query := `
 		UPDATE users SET 
 			password_hash=$1, failed_login_attempts=$2, locked_until=$3, 
@@ -150,8 +188,8 @@ func (r *UserRepoPostgres) UpdateSecurity(ctx context.Context, u *entity.User) e
 		WHERE id=$6
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		u.PasswordHash, u.FailedLoginAttempts, u.LockedUntil,
-		u.LastLoginAt, u.LastLoginIP, u.ID,
+		u.PasswordHash, u.FailedLoginAttempts, lockedUntil,
+		lastLoginAt, u.LastLoginIP, u.ID,
 	)
 	return err
 }
