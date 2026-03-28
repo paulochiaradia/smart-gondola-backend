@@ -69,6 +69,11 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.useCase.Login(r.Context(), req)
 	if err != nil {
+		if err.Error() == "conta temporariamente bloqueada..." {
+			response.Error(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
+
 		// Por segurança, sempre retorna 401 genérico
 		response.Error(w, http.StatusUnauthorized, "email ou senha inválidos")
 		return

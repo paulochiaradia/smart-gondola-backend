@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/application/dto"
 	"github.com/paulochiaradia/smart-gondola-backend/internal/modules/users/domain/entity"
@@ -15,6 +16,11 @@ import (
 type UserUseCase struct {
 	repo repository.UserRepository
 }
+
+const (
+	maxFailedLoginAttempts = 5
+	loginLockoutDuration   = 15 * time.Minute
+)
 
 func NewUserUseCase(repo repository.UserRepository) *UserUseCase {
 	return &UserUseCase{repo: repo}
@@ -67,11 +73,31 @@ func (uc *UserUseCase) Login(ctx context.Context, input dto.LoginRequest) (*dto.
 		return nil, errors.New("credenciais inválidas")
 	}
 
+	if user.IsLocked() {
+		return nil, errors.New("conta temporariamente bloqueada...")
+	}
+
 	if !user.CheckPassword(input.Password) {
+		user.RegisterFailedLogin(maxFailedLoginAttempts, loginLockoutDuration)
+		if err := uc.repo.UpdateSecurity(ctx, user); err != nil {
+			return nil, fmt.Errorf("erro ao atualizar tentativas de login: %w", err)
+		}
+
+		if user.IsLocked() {
+			return nil, errors.New("conta temporariamente bloqueada...")
+		}
+
 		return nil, errors.New("credenciais inválidas")
 	}
 	if user.Status != entity.StatusActive {
 		return nil, errors.New("usuário inativo")
+	}
+
+	now := time.Now()
+	user.LastLoginAt = &now
+	user.ResetLoginAttempts()
+	if err := uc.repo.UpdateSecurity(ctx, user); err != nil {
+		return nil, fmt.Errorf("erro ao atualizar segurança do usuário: %w", err)
 	}
 
 	token, err := auth.GenerateToken(user.ID, user.OrganizationID, string(user.Role))

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -14,10 +15,13 @@ var (
 )
 
 type Config struct {
-	AppEnv     string
-	ServerPort string
-	LogFormat  string
-	BaseURL    string // Importante para montar URLs de imagens (Avatar)
+	AppEnv             string
+	ServerPort         string
+	ServerReadTimeout  time.Duration
+	ServerWriteTimeout time.Duration
+	ServerIdleTimeout  time.Duration
+	LogFormat          string
+	BaseURL            string // Importante para montar URLs de imagens (Avatar)
 
 	// --- Database ---
 	DBHost string
@@ -47,10 +51,13 @@ func Get() *Config {
 		_ = godotenv.Load()
 
 		cfgInstance = &Config{
-			AppEnv:     getEnv("APP_ENV", "development"),
-			ServerPort: getEnv("SERVER_PORT", "8080"),
-			LogFormat:  getEnv("LOG_FORMAT", "json"),
-			BaseURL:    getEnv("BASE_URL", "http://localhost:8080"),
+			AppEnv:             getEnv("APP_ENV", "development"),
+			ServerPort:         getEnv("SERVER_PORT", "8080"),
+			ServerReadTimeout:  getEnvDuration("SERVER_READ_TIMEOUT", 10*time.Second),
+			ServerWriteTimeout: getEnvDuration("SERVER_WRITE_TIMEOUT", 20*time.Second),
+			ServerIdleTimeout:  getEnvDuration("SERVER_IDLE_TIMEOUT", 120*time.Second),
+			LogFormat:          getEnv("LOG_FORMAT", "json"),
+			BaseURL:            getEnv("BASE_URL", "http://localhost:8080"),
 
 			DBHost: getEnv("DB_HOST", "127.0.0.1"),
 			DBPort: getEnv("DB_PORT", "5432"),
@@ -80,5 +87,22 @@ func getEnv(key, fallback string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
 	}
+	return fallback
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		return fallback
+	}
+
+	if duration, err := time.ParseDuration(value); err == nil {
+		return duration
+	}
+
+	if seconds, err := strconv.Atoi(value); err == nil {
+		return time.Duration(seconds) * time.Second
+	}
+
 	return fallback
 }

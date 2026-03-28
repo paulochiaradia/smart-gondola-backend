@@ -51,8 +51,11 @@ func main() {
 	// 4. Server Start
 	serverPort := fmt.Sprintf(":%s", cfg.ServerPort)
 	server := &http.Server{
-		Addr:    serverPort,
-		Handler: httpHandler,
+		Addr:         serverPort,
+		Handler:      httpHandler,
+		ReadTimeout:  cfg.ServerReadTimeout,
+		WriteTimeout: cfg.ServerWriteTimeout,
+		IdleTimeout:  cfg.ServerIdleTimeout,
 	}
 
 	// --- Graceful Shutdown (Desligamento Gracioso) ---
